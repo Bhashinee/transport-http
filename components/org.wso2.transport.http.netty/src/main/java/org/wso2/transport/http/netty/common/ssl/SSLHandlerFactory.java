@@ -96,7 +96,6 @@ public class SSLHandlerFactory {
             }
             sslContext = SSLContext.getInstance(protocol);
             sslContext.init(keyManagers, trustManagers, null);
-
         } catch (UnrecoverableKeyException | KeyManagementException |
                 NoSuchAlgorithmException | KeyStoreException | IOException e) {
             throw new IllegalArgumentException("Failed to initialize the SSLContext", e);
@@ -153,9 +152,7 @@ public class SSLHandlerFactory {
         if (sslConfig.getEnableProtocols() != null && sslConfig.getEnableProtocols().length > 0) {
             engine.setEnabledProtocols(sslConfig.getEnableProtocols());
         }
-        if (sslConfig.isEnableSessionCreation()) {
-            engine.setEnableSessionCreation(true);
-        }
+        engine.setEnableSessionCreation(sslConfig.isEnableSessionCreation());
         return engine;
     }
 
