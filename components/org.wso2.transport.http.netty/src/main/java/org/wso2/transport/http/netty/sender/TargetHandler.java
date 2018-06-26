@@ -47,10 +47,12 @@ import org.wso2.transport.http.netty.message.HttpCarbonResponse;
 import org.wso2.transport.http.netty.message.PooledDataStreamerFactory;
 import org.wso2.transport.http.netty.sender.channel.TargetChannel;
 import org.wso2.transport.http.netty.sender.channel.pool.ConnectionManager;
-import org.wso2.transport.http.netty.sender.http2.ClientOutboundHandler;
 import org.wso2.transport.http.netty.sender.http2.Http2ClientChannel;
+import org.wso2.transport.http.netty.sender.http2.Http2TargetHandler;
 import org.wso2.transport.http.netty.sender.http2.OutboundMsgHolder;
 import org.wso2.transport.http.netty.sender.http2.TimeoutHandler;
+
+import java.io.IOException;
 
 import static org.wso2.transport.http.netty.common.Util.safelyRemoveHandlers;
 
@@ -64,7 +66,7 @@ public class TargetHandler extends ChannelInboundHandlerAdapter {
     private HTTPCarbonMessage inboundResponseMsg;
     private ConnectionManager connectionManager;
     private TargetChannel targetChannel;
-    private ClientOutboundHandler http2ClientOutboundHandler;
+    private Http2TargetHandler http2TargetHandler;
     private HTTPCarbonMessage outboundRequestMsg;
     private HandlerExecutor handlerExecutor;
     private KeepAliveConfig keepAliveConfig;
@@ -83,6 +85,9 @@ public class TargetHandler extends ChannelInboundHandlerAdapter {
     @SuppressWarnings("unchecked")
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        if (outboundRequestMsg != null) {
+            outboundRequestMsg.setIoException(new IOException(Constants.INBOUND_RESPONSE_ALREADY_RECEIVED));
+        }
         if (targetChannel.isRequestHeaderWritten()) {
             if (msg instanceof HttpResponse) {
                 HttpResponse httpInboundResponse = (HttpResponse) msg;
@@ -91,7 +96,7 @@ public class TargetHandler extends ChannelInboundHandlerAdapter {
                 if (handlerExecutor != null) {
                     handlerExecutor.executeAtTargetResponseReceiving(inboundResponseMsg);
                 }
-                OutboundMsgHolder msgHolder = http2ClientOutboundHandler.
+                OutboundMsgHolder msgHolder = http2TargetHandler.
                         getHttp2ClientChannel().getInFlightMessage(Http2CodecUtil.HTTP_UPGRADE_STREAM_ID);
                 if (msgHolder != null) {
                     // Response received over HTTP/1.x connection, so mark no push promises available in the channel
@@ -230,14 +235,12 @@ public class TargetHandler extends ChannelInboundHandlerAdapter {
 
     private void executePostUpgradeActions(ChannelHandlerContext ctx) {
         ctx.pipeline().remove(this);
-        ctx.pipeline().addLast(Constants.OUTBOUND_HANDLER, http2ClientOutboundHandler);
-
-        Http2ClientChannel http2ClientChannel = http2ClientOutboundHandler.getHttp2ClientChannel();
-        http2ClientChannel.setUpgradedToHttp2(true);
+        ctx.pipeline().addLast(Constants.HTTP2_TARGET_HANDLER, http2TargetHandler);
+        Http2ClientChannel http2ClientChannel = http2TargetHandler.getHttp2ClientChannel();
 
         // Remove Http specific handlers
-        safelyRemoveHandlers(targetChannel.getChannel().pipeline(), Constants.REDIRECT_HANDLER,
-                             Constants.IDLE_STATE_HANDLER, Constants.HTTP_TRACE_LOG_HANDLER);
+        safelyRemoveHandlers(targetChannel.getChannel().pipeline(), Constants.IDLE_STATE_HANDLER,
+                Constants.HTTP_TRACE_LOG_HANDLER);
         http2ClientChannel.addDataEventListener(
                 Constants.IDLE_STATE_HANDLER,
                 new TimeoutHandler(http2ClientChannel.getSocketIdleTimeout(), http2ClientChannel));
@@ -312,8 +315,8 @@ public class TargetHandler extends ChannelInboundHandlerAdapter {
         return httpResponseFuture;
     }
 
-    void setHttp2ClientOutboundHandler(ClientOutboundHandler http2ClientOutboundHandler) {
-        this.http2ClientOutboundHandler = http2ClientOutboundHandler;
+    void setHttp2TargetHandler(Http2TargetHandler http2TargetHandler) {
+        this.http2TargetHandler = http2TargetHandler;
     }
 
     private boolean isKeepAlive(KeepAliveConfig keepAliveConfig) {

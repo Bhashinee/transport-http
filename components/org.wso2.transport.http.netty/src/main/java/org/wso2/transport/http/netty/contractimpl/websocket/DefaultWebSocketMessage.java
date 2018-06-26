@@ -31,13 +31,12 @@ import java.util.Map;
 public class DefaultWebSocketMessage implements WebSocketMessage {
 
     private final Map<String, Object> properties = new HashMap<>();
-    protected String subProtocol;
     protected String target;
     protected String listenerInterface;
-    protected boolean isConnectionSecured;
+    protected boolean secureConnection;
     protected boolean isServerMessage;
     protected WebSocketConnection webSocketConnection;
-    protected String sessionlID;
+    protected String sessionID;
 
     public void setProperty(String key, Object value) {
         properties.put(key, value);
@@ -55,20 +54,8 @@ public class DefaultWebSocketMessage implements WebSocketMessage {
         return properties;
     }
 
-
-    // setters and getters of common properties.
-
-    public void setSubProtocol(String subProtocol) {
-        this.subProtocol = subProtocol;
-    }
-
-    public void setSessionlID(String sessionlID) {
-        this.sessionlID = sessionlID;
-    }
-
-    @Override
-    public String getSubProtocol() {
-        return subProtocol;
+    public void setSessionID(String sessionID) {
+        this.sessionID = sessionID;
     }
 
     public void setTarget(String target) {
@@ -89,13 +76,13 @@ public class DefaultWebSocketMessage implements WebSocketMessage {
         return listenerInterface;
     }
 
-    public void setIsConnectionSecured(boolean isConnectionSecured) {
-        this.isConnectionSecured = isConnectionSecured;
+    public void setIsSecureConnection(boolean isConnectionSecured) {
+        this.secureConnection = isConnectionSecured;
     }
 
     @Override
-    public boolean isConnectionSecured() {
-        return isConnectionSecured;
+    public boolean isSecureConnection() {
+        return secureConnection;
     }
 
     public void setIsServerMessage(boolean isServerMessage) {
@@ -118,6 +105,6 @@ public class DefaultWebSocketMessage implements WebSocketMessage {
 
     @Override
     public String getSessionID() {
-        return sessionlID;
+        return sessionID;
     }
 }

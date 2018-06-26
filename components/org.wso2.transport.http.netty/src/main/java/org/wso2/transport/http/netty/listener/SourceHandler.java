@@ -20,21 +20,18 @@
 package org.wso2.transport.http.netty.listener;
 
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.EventLoop;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.socket.ChannelInputShutdownReadComplete;
-import io.netty.handler.codec.DecoderException;
-import io.netty.handler.codec.DecoderResult;
-import io.netty.handler.codec.http.DefaultLastHttpContent;
 import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpMessage;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpServerUpgradeHandler;
 import io.netty.handler.codec.http.HttpVersion;
-import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.ssl.SslCloseCompletionEvent;
 import io.netty.handler.timeout.IdleStateEvent;
 import org.apache.commons.pool.impl.GenericObjectPool;
@@ -44,8 +41,6 @@ import org.wso2.transport.http.netty.common.Constants;
 import org.wso2.transport.http.netty.common.Util;
 import org.wso2.transport.http.netty.config.ChunkConfig;
 import org.wso2.transport.http.netty.config.KeepAliveConfig;
-import org.wso2.transport.http.netty.contract.HttpResponseFuture;
-import org.wso2.transport.http.netty.contract.ServerConnectorException;
 import org.wso2.transport.http.netty.contract.ServerConnectorFuture;
 import org.wso2.transport.http.netty.contractimpl.HttpOutboundRespListener;
 import org.wso2.transport.http.netty.internal.HTTPTransportContextHolder;
@@ -57,9 +52,14 @@ import org.wso2.transport.http.netty.message.PooledDataStreamerFactory;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.net.URISyntaxException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static org.wso2.transport.http.netty.common.Constants.IDLE_TIMEOUT_TRIGGERED_WHILE_READING_INBOUND_REQUEST;
+import static org.wso2.transport.http.netty.common.SourceInteractiveState.CONNECTED;
+import static org.wso2.transport.http.netty.common.SourceInteractiveState.ENTITY_BODY_RECEIVED;
+import static org.wso2.transport.http.netty.common.SourceInteractiveState.ENTITY_BODY_SENT;
+import static org.wso2.transport.http.netty.common.SourceInteractiveState.RECEIVING_ENTITY_BODY;
 
 /**
  * A Class responsible for handle  incoming message through netty inbound pipeline.
@@ -67,19 +67,21 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SourceHandler extends ChannelInboundHandlerAdapter {
     private static Logger log = LoggerFactory.getLogger(SourceHandler.class);
 
-    private HTTPCarbonMessage sourceReqCmsg;
+    private HTTPCarbonMessage inboundRequestMsg;
     private HandlerExecutor handlerExecutor;
     private Map<String, GenericObjectPool> targetChannelPool;
-    private ServerConnectorFuture serverConnectorFuture;
     private ChunkConfig chunkConfig;
     private KeepAliveConfig keepAliveConfig;
-    private HttpResponseFuture httpOutboundRespFuture;
+
+    private final ServerConnectorFuture serverConnectorFuture;
+
     private String interfaceId;
     private String serverName;
     private boolean idleTimeout;
     private ChannelGroup allChannels;
     protected ChannelHandlerContext ctx;
     private SocketAddress remoteAddress;
+    private SourceErrorHandler sourceErrorHandler;
 
     public SourceHandler(ServerConnectorFuture serverConnectorFuture, String interfaceId, ChunkConfig chunkConfig,
                          KeepAliveConfig keepAliveConfig, String serverName, ChannelGroup allChannels) {
@@ -91,6 +93,7 @@ public class SourceHandler extends ChannelInboundHandlerAdapter {
         this.idleTimeout = false;
         this.serverName = serverName;
         this.allChannels = allChannels;
+        this.sourceErrorHandler = new SourceErrorHandler(this.serverConnectorFuture, serverName);
     }
 
     @Override
@@ -99,129 +102,27 @@ public class SourceHandler extends ChannelInboundHandlerAdapter {
     }
 
     @Override
-    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+    public void channelActive(final ChannelHandlerContext ctx) {
         allChannels.add(ctx.channel());
-        // Start the server connection Timer
         this.handlerExecutor = HTTPTransportContextHolder.getInstance().getHandlerExecutor();
         if (this.handlerExecutor != null) {
             this.handlerExecutor.executeAtSourceConnectionInitiation(Integer.toString(ctx.hashCode()));
         }
         this.ctx = ctx;
         this.remoteAddress = ctx.channel().remoteAddress();
-    }
-
-    @SuppressWarnings("unchecked")
-    @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (msg instanceof HttpRequest) {
-            HttpRequest httpRequest = (HttpRequest) msg;
-            sourceReqCmsg = setupCarbonMessage(httpRequest, ctx);
-            notifyRequestListener(sourceReqCmsg, ctx);
-
-            if (httpRequest.decoderResult().isFailure()) {
-                log.warn(httpRequest.decoderResult().cause().getMessage());
-            }
-        } else {
-            if (sourceReqCmsg != null) {
-                if (msg instanceof HttpContent) {
-                    HttpContent httpContent = (HttpContent) msg;
-                    sourceReqCmsg.addHttpContent(httpContent);
-                    if (Util.isLastHttpContent(httpContent)) {
-                        if (handlerExecutor != null) {
-                            handlerExecutor.executeAtSourceRequestSending(sourceReqCmsg);
-                        }
-                        if (isDiffered(sourceReqCmsg)) {
-                            this.serverConnectorFuture.notifyHttpListener(sourceReqCmsg);
-                        }
-                        httpOutboundRespFuture = sourceReqCmsg.getHttpOutboundRespStatusFuture();
-                        sourceReqCmsg = null;
-                    }
-                }
-            } else {
-                log.warn("Inconsistent state detected : sourceReqCmsg is null for channel read event");
-            }
-        }
-    }
-
-    private HTTPCarbonMessage setupCarbonMessage(HttpMessage httpMessage, ChannelHandlerContext ctx)
-            throws URISyntaxException {
-
-        if (handlerExecutor != null) {
-            handlerExecutor.executeAtSourceRequestReceiving(sourceReqCmsg);
-        }
-
-        sourceReqCmsg = new HttpCarbonRequest((HttpRequest) httpMessage, new DefaultListener(ctx));
-        sourceReqCmsg.setProperty(Constants.POOLED_BYTE_BUFFER_FACTORY, new PooledDataStreamerFactory(ctx.alloc()));
-
-        HttpRequest httpRequest = (HttpRequest) httpMessage;
-        sourceReqCmsg.setProperty(Constants.CHNL_HNDLR_CTX, this.ctx);
-        sourceReqCmsg.setProperty(Constants.SRC_HANDLER, this);
-        HttpVersion protocolVersion = httpRequest.protocolVersion();
-        sourceReqCmsg.setProperty(Constants.HTTP_VERSION,
-                protocolVersion.majorVersion() + "." + protocolVersion.minorVersion());
-        sourceReqCmsg.setProperty(Constants.HTTP_METHOD, httpRequest.method().name());
-        InetSocketAddress localAddress = null;
-
-        //This check was added because in case of netty embedded channel, this could be of type 'EmbeddedSocketAddress'.
-        if (ctx.channel().localAddress() instanceof InetSocketAddress) {
-            localAddress = (InetSocketAddress) ctx.channel().localAddress();
-        }
-        sourceReqCmsg.setProperty(Constants.LISTENER_PORT, localAddress != null ? localAddress.getPort() : null);
-        sourceReqCmsg.setProperty(Constants.LISTENER_INTERFACE_ID, interfaceId);
-        sourceReqCmsg.setProperty(Constants.PROTOCOL, Constants.HTTP_SCHEME);
-
-        boolean isSecuredConnection = false;
-        if (ctx.channel().pipeline().get(Constants.SSL_HANDLER) != null) {
-            isSecuredConnection = true;
-        }
-        sourceReqCmsg.setProperty(Constants.IS_SECURED_CONNECTION, isSecuredConnection);
-
-        sourceReqCmsg.setProperty(Constants.LOCAL_ADDRESS, ctx.channel().localAddress());
-        sourceReqCmsg.setProperty(Constants.REMOTE_ADDRESS, remoteAddress);
-        sourceReqCmsg.setProperty(Constants.REQUEST_URL, httpRequest.uri());
-        sourceReqCmsg.setProperty(Constants.TO, httpRequest.uri());
-        //Added protocol name as a string
-
-        return sourceReqCmsg;
-    }
-
-    private void notifyRequestListener(HTTPCarbonMessage httpRequestMsg, ChannelHandlerContext ctx)
-            throws URISyntaxException {
-
-        if (handlerExecutor != null) {
-            handlerExecutor.executeAtSourceRequestReceiving(httpRequestMsg);
-        }
-
-        if (serverConnectorFuture != null) {
-            try {
-                ServerConnectorFuture outboundRespFuture = httpRequestMsg.getHttpResponseFuture();
-                outboundRespFuture.setHttpConnectorListener(
-                        new HttpOutboundRespListener(ctx, httpRequestMsg, chunkConfig, keepAliveConfig, serverName));
-                this.serverConnectorFuture.notifyHttpListener(httpRequestMsg);
-            } catch (Exception e) {
-                log.error("Error while notifying listeners", e);
-            }
-        } else {
-            log.error("Cannot find registered listener to forward the message");
-        }
+        sourceErrorHandler.setState(CONNECTED);
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        // Stop the connector timer
+    public void channelInactive(ChannelHandlerContext ctx) {
         ctx.close();
-        handleErrorCloseScenario(ctx);
+        if (!idleTimeout) {
+            sourceErrorHandler.handleErrorCloseScenario(inboundRequestMsg);
+        }
         closeTargetChannels();
-    }
-
-    private void handleErrorCloseScenario(ChannelHandlerContext ctx) {
         if (handlerExecutor != null) {
             handlerExecutor.executeAtSourceConnectionTermination(Integer.toString(ctx.hashCode()));
             handlerExecutor = null;
-        }
-
-        if (sourceReqCmsg != null && !idleTimeout) {
-            handleIncompleteInboundRequest(Constants.REMOTE_CLIENT_ABRUPTLY_CLOSE_CONNECTION);
         }
     }
 
@@ -235,39 +136,144 @@ public class SourceHandler extends ChannelInboundHandlerAdapter {
         });
     }
 
+    @SuppressWarnings("unchecked")
     @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+        if (msg instanceof HttpRequest) {
+            sourceErrorHandler.setState(CONNECTED);
+            HttpRequest httpRequest = (HttpRequest) msg;
+            inboundRequestMsg = setupCarbonMessage(httpRequest, ctx);
+            notifyRequestListener(inboundRequestMsg, ctx);
+
+            if (httpRequest.decoderResult().isFailure()) {
+                log.warn(httpRequest.decoderResult().cause().getMessage());
+            }
+        } else {
+            if (inboundRequestMsg != null) {
+                if (msg instanceof HttpContent) {
+                    sourceErrorHandler.setState(RECEIVING_ENTITY_BODY);
+                    HttpContent httpContent = (HttpContent) msg;
+                    try {
+                        inboundRequestMsg.addHttpContent(httpContent);
+                        if (Util.isLastHttpContent(httpContent)) {
+                            if (handlerExecutor != null) {
+                                handlerExecutor.executeAtSourceRequestSending(inboundRequestMsg);
+                            }
+                            if (isDiffered(inboundRequestMsg)) {
+                                this.serverConnectorFuture.notifyHttpListener(inboundRequestMsg);
+                            }
+                            inboundRequestMsg = null;
+                            sourceErrorHandler.setState(ENTITY_BODY_RECEIVED);
+                        }
+                    } catch (RuntimeException ex) {
+                        httpContent.release();
+                        log.warn("Response already received before completing the inbound request" + ex.getMessage());
+                    }
+                }
+            } else {
+                log.warn("Inconsistent state detected : inboundRequestMsg is null for channel read event");
+            }
+        }
+    }
+
+    private boolean isDiffered(HTTPCarbonMessage sourceReqCmsg) {
+        //Http resource stored in the HTTPCarbonMessage means execution waits till payload.
+        return sourceReqCmsg.getProperty(Constants.HTTP_RESOURCE) != null;
+    }
+
+    private void notifyRequestListener(HTTPCarbonMessage httpRequestMsg, ChannelHandlerContext ctx) {
+
+        if (handlerExecutor != null) {
+            handlerExecutor.executeAtSourceRequestReceiving(httpRequestMsg);
+        }
+
+        if (serverConnectorFuture != null) {
+            try {
+                ServerConnectorFuture outboundRespFuture = httpRequestMsg.getHttpResponseFuture();
+                outboundRespFuture.setHttpConnectorListener(
+                        new HttpOutboundRespListener(ctx, httpRequestMsg, chunkConfig, keepAliveConfig, serverName,
+                                                     sourceErrorHandler));
+                this.serverConnectorFuture.notifyHttpListener(httpRequestMsg);
+            } catch (Exception e) {
+                log.error("Error while notifying listeners", e);
+            }
+        } else {
+            log.error("Cannot find registered listener to forward the message");
+        }
+    }
+
+    private HTTPCarbonMessage setupCarbonMessage(HttpMessage httpMessage, ChannelHandlerContext ctx) {
+
+        if (handlerExecutor != null) {
+            handlerExecutor.executeAtSourceRequestReceiving(inboundRequestMsg);
+        }
+
+        inboundRequestMsg = new HttpCarbonRequest((HttpRequest) httpMessage, new DefaultListener(ctx));
+        inboundRequestMsg.setProperty(Constants.POOLED_BYTE_BUFFER_FACTORY, new PooledDataStreamerFactory(ctx.alloc()));
+
+        HttpRequest httpRequest = (HttpRequest) httpMessage;
+        inboundRequestMsg.setProperty(Constants.CHNL_HNDLR_CTX, this.ctx);
+        inboundRequestMsg.setProperty(Constants.SRC_HANDLER, this);
+        HttpVersion protocolVersion = httpRequest.protocolVersion();
+        inboundRequestMsg.setProperty(Constants.HTTP_VERSION,
+                                      protocolVersion.majorVersion() + "." + protocolVersion.minorVersion());
+        inboundRequestMsg.setProperty(Constants.HTTP_METHOD, httpRequest.method().name());
+        InetSocketAddress localAddress = null;
+
+        //This check was added because in case of netty embedded channel, this could be of type 'EmbeddedSocketAddress'.
+        if (ctx.channel().localAddress() instanceof InetSocketAddress) {
+            localAddress = (InetSocketAddress) ctx.channel().localAddress();
+        }
+        inboundRequestMsg.setProperty(Constants.LISTENER_PORT, localAddress != null ? localAddress.getPort() : null);
+        inboundRequestMsg.setProperty(Constants.LISTENER_INTERFACE_ID, interfaceId);
+        inboundRequestMsg.setProperty(Constants.PROTOCOL, Constants.HTTP_SCHEME);
+
+        boolean isSecuredConnection = false;
+        if (ctx.channel().pipeline().get(Constants.SSL_HANDLER) != null) {
+            isSecuredConnection = true;
+        }
+        inboundRequestMsg.setProperty(Constants.IS_SECURED_CONNECTION, isSecuredConnection);
+
+        inboundRequestMsg.setProperty(Constants.LOCAL_ADDRESS, ctx.channel().localAddress());
+        inboundRequestMsg.setProperty(Constants.REMOTE_ADDRESS, remoteAddress);
+        inboundRequestMsg.setProperty(Constants.REQUEST_URL, httpRequest.uri());
+        inboundRequestMsg.setProperty(Constants.TO, httpRequest.uri());
+        //Added protocol name as a string
+
+        return inboundRequestMsg;
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         if (ctx != null && ctx.channel().isActive()) {
             ctx.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE);
         }
-        if (sourceReqCmsg != null) {
-            handleIncompleteInboundRequest(Constants.EXCEPTION_CAUGHT_WHILE_READING_REQUEST);
-        }
-        serverConnectorFuture.notifyErrorListener(cause);
-    }
-
-    private void handleIncompleteInboundRequest(String errorMessage) {
-        LastHttpContent lastHttpContent = new DefaultLastHttpContent();
-        lastHttpContent.setDecoderResult(DecoderResult.failure(new DecoderException(errorMessage)));
-        sourceReqCmsg.addHttpContent(lastHttpContent);
-        log.warn(errorMessage);
-    }
-
-    public Map<String, GenericObjectPool> getTargetChannelPool() {
-        return targetChannelPool;
-    }
-
-    public ChannelHandlerContext getInboundChannelContext() {
-        return ctx;
+        sourceErrorHandler.exceptionCaught(cause);
     }
 
     @Override
-    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
         if (evt instanceof IdleStateEvent) {
             this.idleTimeout = true;
-            this.channelInactive(ctx);
-            handleIdleErrorScenario();
-
+            boolean inCompleteRequest = sourceErrorHandler.getState() == RECEIVING_ENTITY_BODY;
+            ChannelFuture outboundRespFuture = sourceErrorHandler.handleIdleErrorScenario(inboundRequestMsg, ctx,
+                                                                                          (IdleStateEvent) evt);
+            if (outboundRespFuture == null) {
+                this.channelInactive(ctx);
+            } else {
+                outboundRespFuture.addListener((ChannelFutureListener) channelFuture -> {
+                    sourceErrorHandler.setState(ENTITY_BODY_SENT);
+                    Throwable cause = channelFuture.cause();
+                    if (cause != null) {
+                        log.warn("Failed to send: " + cause.getMessage());
+                    }
+                    this.channelInactive(ctx);
+                    if (inCompleteRequest) {
+                        sourceErrorHandler.handleIncompleteInboundRequest(
+                                IDLE_TIMEOUT_TRIGGERED_WHILE_READING_INBOUND_REQUEST);
+                    }
+                });
+            }
             log.debug("Idle timeout has reached hence closing the connection {}", ctx.channel().id().asShortText());
         } else if (evt instanceof HttpServerUpgradeHandler.UpgradeEvent) {
             log.debug("Server upgrade event received");
@@ -285,23 +291,15 @@ public class SourceHandler extends ChannelInboundHandlerAdapter {
         }
     }
 
-    private void handleIdleErrorScenario() {
-        if (sourceReqCmsg == null) {
-            // This means we have received last http content of this particular request
-            httpOutboundRespFuture.notifyHttpListener(
-                    new ServerConnectorException(
-                            Constants.IDLE_TIMEOUT_TRIGGERED_BEFORE_WRITING_OUTBOUND_RESPONSE));
-        } else {
-            handleIncompleteInboundRequest(Constants.IDLE_TIMEOUT_TRIGGERED_WHILE_READING_INBOUND_REQUEST);
-        }
-    }
-
-    private boolean isDiffered(HTTPCarbonMessage sourceReqCmsg) {
-        //Http resource stored in the HTTPCarbonMessage means execution waits till payload.
-        return sourceReqCmsg.getProperty(Constants.HTTP_RESOURCE) != null;
-    }
-
     public EventLoop getEventLoop() {
         return this.ctx.channel().eventLoop();
+    }
+
+    public Map<String, GenericObjectPool> getTargetChannelPool() {
+        return targetChannelPool;
+    }
+
+    public ChannelHandlerContext getInboundChannelContext() {
+        return ctx;
     }
 }

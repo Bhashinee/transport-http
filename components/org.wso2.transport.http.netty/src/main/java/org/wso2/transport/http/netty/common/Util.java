@@ -20,6 +20,7 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.DefaultHttpRequest;
 import io.netty.handler.codec.http.DefaultHttpResponse;
@@ -35,15 +36,22 @@ import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.codec.http2.Http2Exception;
 import io.netty.handler.codec.http2.Http2Headers;
 import io.netty.handler.codec.http2.HttpConversionUtil;
+import io.netty.handler.ssl.ReferenceCountedOpenSslContext;
+import io.netty.handler.ssl.ReferenceCountedOpenSslEngine;
+import io.netty.handler.ssl.SslHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wso2.transport.http.netty.common.ssl.SSLConfig;
+import org.wso2.transport.http.netty.common.ssl.SSLHandlerFactory;
 import org.wso2.transport.http.netty.config.ChunkConfig;
 import org.wso2.transport.http.netty.config.Parameter;
+import org.wso2.transport.http.netty.config.SslConfiguration;
 import org.wso2.transport.http.netty.contract.HttpResponseFuture;
 import org.wso2.transport.http.netty.message.DefaultListener;
 import org.wso2.transport.http.netty.message.HTTPCarbonMessage;
 import org.wso2.transport.http.netty.message.Listener;
+import org.wso2.transport.http.netty.sender.CertificateValidationHandler;
+import org.wso2.transport.http.netty.sender.OCSPStaplingHandler;
 
 import java.io.File;
 import java.io.IOException;
@@ -54,12 +62,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLException;
 
 import static org.wso2.transport.http.netty.common.Constants.COLON;
 import static org.wso2.transport.http.netty.common.Constants.HTTP_HOST;
 import static org.wso2.transport.http.netty.common.Constants.HTTP_PORT;
+import static org.wso2.transport.http.netty.common.Constants.HTTP_SCHEME;
 import static org.wso2.transport.http.netty.common.Constants.IS_PROXY_ENABLED;
 import static org.wso2.transport.http.netty.common.Constants.PROTOCOL;
+import static org.wso2.transport.http.netty.common.Constants.REMOTE_CLIENT_CLOSED_WHILE_WRITING_OUTBOUND_RESPONSE;
 import static org.wso2.transport.http.netty.common.Constants.TO;
 import static org.wso2.transport.http.netty.common.Constants.URL_AUTHORITY;
 
@@ -165,8 +177,8 @@ public class Util {
             outboundRequestMsg.setProperty(TO, "");
         }
         // Return absolute url if proxy is enabled
-        if (outboundRequestMsg.getProperty(IS_PROXY_ENABLED) != null &&
-                (boolean) outboundRequestMsg.getProperty(IS_PROXY_ENABLED)) {
+        if (outboundRequestMsg.getProperty(IS_PROXY_ENABLED) != null && (boolean) outboundRequestMsg
+                .getProperty(IS_PROXY_ENABLED) && outboundRequestMsg.getProperty(PROTOCOL).equals(HTTP_SCHEME)) {
             return outboundRequestMsg.getProperty(PROTOCOL) + URL_AUTHORITY
                     + outboundRequestMsg.getProperty(HTTP_HOST) + COLON
                     + outboundRequestMsg.getProperty(HTTP_PORT)
@@ -339,7 +351,7 @@ public class Util {
             certPass = keyStorePass;
         }
         if (trustStoreFilePath == null || trustStorePass == null) {
-            throw new IllegalArgumentException("TrusStoreFile or trustStorePassword not defined for HTTPS scheme");
+            throw new IllegalArgumentException("TrustStoreFile or trustStorePassword not defined for HTTPS/WSS scheme");
         }
         SSLConfig sslConfig = new SSLConfig(null, null).setCertPass(null);
 
@@ -370,6 +382,67 @@ public class Util {
             }
         }
         return sslConfig;
+    }
+
+    /**
+     * Configure outbound HTTP pipeline for SSL configuration.
+     *
+     * @param socketChannel Socket channel of outbound connection
+     * @param sslConfiguration {@link SslConfiguration}
+     * @param host host of the connection
+     * @param port port of the connection
+     * @throws SSLException if any error occurs in the SSL connection
+     */
+    public static void configureHttpPipelineForSSL(SocketChannel socketChannel, String host, int port,
+            SslConfiguration sslConfiguration) throws SSLException {
+        log.debug("adding ssl handler");
+        SSLConfig sslConfig = sslConfiguration.generateSSLConfig();
+        ChannelPipeline pipeline = socketChannel.pipeline();
+        if (sslConfiguration.isOcspStaplingEnabled()) {
+            SSLHandlerFactory sslHandlerFactory = new SSLHandlerFactory(sslConfig);
+            ReferenceCountedOpenSslContext referenceCountedOpenSslContext = sslHandlerFactory
+                    .buildClientReferenceCountedOpenSslContext();
+
+            if (referenceCountedOpenSslContext != null) {
+                SslHandler sslHandler = referenceCountedOpenSslContext.newHandler(socketChannel.alloc());
+                ReferenceCountedOpenSslEngine engine = (ReferenceCountedOpenSslEngine) sslHandler.engine();
+                socketChannel.pipeline().addLast(sslHandler);
+                socketChannel.pipeline().addLast(new OCSPStaplingHandler(engine));
+            }
+        } else {
+            SSLEngine sslEngine = instantiateAndConfigSSL(sslConfig, host, port,
+                    sslConfiguration.hostNameVerificationEnabled());
+            pipeline.addLast(Constants.SSL_HANDLER, new SslHandler(sslEngine));
+            if (sslConfiguration.validateCertEnabled()) {
+                pipeline.addLast(Constants.HTTP_CERT_VALIDATION_HANDLER, new CertificateValidationHandler(
+                        sslEngine, sslConfiguration.getCacheValidityPeriod(), sslConfiguration.getCacheSize()));
+            }
+        }
+    }
+
+    /**
+     * Set configurations to create ssl engine.
+     *
+     * @param sslConfig ssl related configurations
+     * @param host host of the connection
+     * @param port port of the connection
+     * @param hostNameVerificationEnabled true if host name verification is enabled
+     * @return ssl engine
+     */
+    public static SSLEngine instantiateAndConfigSSL(SSLConfig sslConfig, String host, int port,
+            boolean hostNameVerificationEnabled) {
+        // set the pipeline factory, which creates the pipeline for each newly created channels
+        SSLEngine sslEngine = null;
+        if (sslConfig != null) {
+            SSLHandlerFactory sslHandlerFactory = new SSLHandlerFactory(sslConfig);
+            sslEngine = sslHandlerFactory.buildClientSSLEngine(host, port);
+            sslEngine.setUseClientMode(true);
+            sslHandlerFactory.setSNIServerNames(sslEngine, host);
+            if (hostNameVerificationEnabled) {
+                sslHandlerFactory.setHostNameVerfication(sslEngine);
+            }
+        }
+        return sslEngine;
     }
 
     /**
@@ -612,9 +685,8 @@ public class Util {
             Throwable throwable = writeOperationPromise.cause();
             if (throwable != null) {
                 if (throwable instanceof ClosedChannelException) {
-                    throwable = new IOException(Constants.REMOTE_CLIENT_ABRUPTLY_CLOSE_RESPONSE_CONNECTION);
+                    throwable = new IOException(REMOTE_CLIENT_CLOSED_WHILE_WRITING_OUTBOUND_RESPONSE);
                 }
-                log.error(Constants.REMOTE_CLIENT_ABRUPTLY_CLOSE_RESPONSE_CONNECTION, throwable);
                 outboundRespStatusFuture.notifyHttpListener(throwable);
             } else {
                 outboundRespStatusFuture.notifyHttpListener(inboundRequestMsg);
@@ -634,9 +706,8 @@ public class Util {
             Throwable throwable = writeOperationPromise.cause();
             if (throwable != null) {
                 if (throwable instanceof ClosedChannelException) {
-                    throwable = new IOException(Constants.REMOTE_CLIENT_ABRUPTLY_CLOSE_RESPONSE_CONNECTION);
+                    throwable = new IOException(REMOTE_CLIENT_CLOSED_WHILE_WRITING_OUTBOUND_RESPONSE);
                 }
-                log.error(Constants.REMOTE_CLIENT_ABRUPTLY_CLOSE_RESPONSE_CONNECTION, throwable);
                 outboundRespStatusFuture.notifyHttpListener(throwable);
             }
         });

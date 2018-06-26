@@ -20,10 +20,12 @@
 package org.wso2.transport.http.netty.util.server.websocket;
 
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.CloseWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.ContinuationWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.PingWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketFrame;
@@ -42,19 +44,20 @@ public class WebSocketRemoteServerFrameHandler extends SimpleChannelInboundHandl
     private static final String PING = "ping";
     private static final String CLOSE = "close";
     private static final String CLOSE_WITHOUT_FRAME = "close-without-frame";
+    private static final String SEND_CORRUPTED_FRAME = "send-corrupted-frame";
 
     @Override
-    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+    public void channelActive(ChannelHandlerContext ctx) {
         log.debug("channel is active");
     }
 
     @Override
-    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+    public void channelInactive(ChannelHandlerContext ctx) {
         log.debug("channel is inactive");
     }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, WebSocketFrame frame) throws Exception {
+    protected void channelRead0(ChannelHandlerContext ctx, WebSocketFrame frame) {
         if (frame instanceof TextWebSocketFrame) {
             String text = ((TextWebSocketFrame) frame).text();
             switch (text) {
@@ -68,6 +71,9 @@ public class WebSocketRemoteServerFrameHandler extends SimpleChannelInboundHandl
                 case CLOSE_WITHOUT_FRAME:
                     ctx.close();
                     break;
+                case SEND_CORRUPTED_FRAME:
+                    ctx.writeAndFlush(new ContinuationWebSocketFrame(Unpooled.wrappedBuffer(new byte[]{1, 2, 3, 4})));
+                    break;
                 default:
                     ctx.channel().writeAndFlush(new TextWebSocketFrame(text));
             }
@@ -79,7 +85,14 @@ public class WebSocketRemoteServerFrameHandler extends SimpleChannelInboundHandl
             clonedBuffer.flip();
             ctx.writeAndFlush(new BinaryWebSocketFrame(Unpooled.wrappedBuffer(clonedBuffer)));
         } else if (frame instanceof CloseWebSocketFrame) {
-            ctx.close();
+            CloseWebSocketFrame closeFrame = (CloseWebSocketFrame) frame;
+            ChannelFuture closeFuture;
+            if (closeFrame.statusCode() == 1007) {
+                closeFuture = ctx.writeAndFlush(1008);
+            } else {
+                closeFuture = ctx.writeAndFlush(closeFrame.statusCode());
+            }
+            closeFuture.addListener(future -> ctx.close());
         } else {
             String message = "unsupported frame type: " + frame.getClass().getName();
             throw new UnsupportedOperationException(message);
