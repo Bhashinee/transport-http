@@ -29,10 +29,12 @@ import org.wso2.transport.http.netty.config.ListenerConfiguration;
 import org.wso2.transport.http.netty.config.SenderConfiguration;
 import org.wso2.transport.http.netty.contract.HttpClientConnector;
 import org.wso2.transport.http.netty.contract.HttpWsConnectorFactory;
+import org.wso2.transport.http.netty.contract.ProxyServerConnector;
 import org.wso2.transport.http.netty.contract.ServerConnector;
 import org.wso2.transport.http.netty.contract.websocket.WebSocketClientConnector;
 import org.wso2.transport.http.netty.contract.websocket.WebSocketClientConnectorConfig;
 import org.wso2.transport.http.netty.contractimpl.websocket.DefaultWebSocketClientConnector;
+import org.wso2.transport.http.netty.listener.ProxyServerConnectorBootstrap;
 import org.wso2.transport.http.netty.listener.ServerBootstrapConfiguration;
 import org.wso2.transport.http.netty.listener.ServerConnectorBootstrap;
 import org.wso2.transport.http.netty.sender.channel.BootstrapConfiguration;
@@ -85,6 +87,14 @@ public class DefaultHttpWsConnectorFactory implements HttpWsConnectorFactory {
         serverConnectorBootstrap.addServerHeader(listenerConfig.getServerHeader());
 
         return serverConnectorBootstrap.getServerConnector(listenerConfig.getHost(), listenerConfig.getPort());
+    }
+
+    @Override
+    public ProxyServerConnector createProxyServerConnector(ListenerConfiguration listenerConfiguration) {
+        ProxyServerConnectorBootstrap proxyServerBootstrap = new ProxyServerConnectorBootstrap(allChannels);
+        proxyServerBootstrap.addThreadPools(bossGroup, workerGroup);
+        proxyServerBootstrap.addHeaderAndEntitySizeValidation(listenerConfiguration.getRequestSizeValidationConfig());
+        return proxyServerBootstrap.getServerConnector(listenerConfiguration.getHost(), listenerConfiguration.getPort());
     }
 
     @Override
