@@ -19,10 +19,10 @@
 
 package org.wso2.transport.http.netty.listener;
 
-import org.wso2.transport.http.netty.contract.HttpConnectorListener;
-import org.wso2.transport.http.netty.contract.PortBindingEventListener;
+import org.wso2.transport.http.netty.ProxyConnectorListener;
 import org.wso2.transport.http.netty.contract.PortBindingEventListenerForProxyServer;
 import org.wso2.transport.http.netty.contract.ServerConnectorException;
+import org.wso2.transport.http.netty.contract.proxyserver.ProxyServerForwardRequests;
 import org.wso2.transport.http.netty.message.HTTPCarbonMessage;
 
 /**
@@ -41,8 +41,9 @@ public interface ProxyServerConnectorFuture {
 
     void sync() throws InterruptedException;
 
-    void setHttpConnectorListener(HttpConnectorListener httpConnectorListener);
+    void setProxyConnectorListener(ProxyConnectorListener proxyConnectorListener);
 
-    void notifyHttpListener(HTTPCarbonMessage httpMessage) throws ServerConnectorException;
+    void notifyHttpListener(ProxyServerForwardRequests proxyServerForwardRequests)
+            throws ServerConnectorException;
 
 }

@@ -2,16 +2,17 @@ package org.wso2.transport.http.netty.contractimpl;
 
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.group.ChannelGroup;
-import org.wso2.transport.http.netty.contract.HttpConnectorListener;
-import org.wso2.transport.http.netty.contract.PortBindingEventListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.wso2.transport.http.netty.ProxyConnectorListener;
 import org.wso2.transport.http.netty.contract.PortBindingEventListenerForProxyServer;
-import org.wso2.transport.http.netty.contract.ServerConnector;
 import org.wso2.transport.http.netty.contract.ServerConnectorException;
+import org.wso2.transport.http.netty.contract.proxyserver.ProxyServerForwardRequests;
 import org.wso2.transport.http.netty.listener.ProxyServerConnectorFuture;
 import org.wso2.transport.http.netty.message.HTTPCarbonMessage;
 
 /**
- * Created by bhashinee on 6/26/18.
+ * A class for notifying ballerina....
  */
 public class ProxyServerConnectorFutureImpl implements ProxyServerConnectorFuture {
 
@@ -21,23 +22,28 @@ public class ProxyServerConnectorFutureImpl implements ProxyServerConnectorFutur
     private Throwable connectorInitException;
     private ChannelFuture nettyBindFuture;
     private ChannelGroup allChannels;
-    private HttpConnectorListener httpConnectorListener;
+    private ProxyConnectorListener proxyConnectorListener;
+    private static final Logger log = LoggerFactory.getLogger(ProxyServerConnectorFutureImpl.class);
+
+
+    public ProxyServerConnectorFutureImpl() {}
 
     public ProxyServerConnectorFutureImpl(ChannelFuture nettyBindFuture, ChannelGroup allChannels) {
         this.nettyBindFuture = nettyBindFuture;
         this.allChannels = allChannels;
     }
 
-    public void setHttpConnectorListener(HttpConnectorListener httpConnectorListener) {
-        this.httpConnectorListener = httpConnectorListener;
+    @Override
+    public void setProxyConnectorListener(ProxyConnectorListener proxyConnectorListener) {
+        this.proxyConnectorListener = proxyConnectorListener;
     }
 
     @Override
-    public void notifyHttpListener(HTTPCarbonMessage httpMessage) throws ServerConnectorException {
-        if (httpConnectorListener == null) {
+    public void notifyHttpListener(ProxyServerForwardRequests proxyServerForwardRequests) throws ServerConnectorException {
+        if (proxyConnectorListener == null) {
             throw new ServerConnectorException("HTTP connector listener is not set");
         }
-        httpConnectorListener.onMessage(httpMessage);
+        proxyConnectorListener.onMessage(proxyServerForwardRequests);
     }
 
     @Override
@@ -79,7 +85,7 @@ public class ProxyServerConnectorFutureImpl implements ProxyServerConnectorFutur
             try {
                 notifyPortUnbindingEvent(closingServerConnectorId);
             } catch (ServerConnectorException e) {
-                e.printStackTrace();
+                log.error("Unable to bind to a port");
             }
         }
         if (connectorInitException != null) {

@@ -36,7 +36,7 @@ public class ProxyServerOutboundHandler extends ChannelInboundHandlerAdapter {
     private final Channel inboundChannel;
     private static final Logger log = LoggerFactory.getLogger(ProxyServerOutboundHandler.class);
 
-    ProxyServerOutboundHandler(Channel inboundChannel) {
+    public ProxyServerOutboundHandler(Channel inboundChannel) {
         this.inboundChannel = inboundChannel;
     }
 

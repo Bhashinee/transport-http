@@ -36,8 +36,8 @@
             <class name="org.wso2.transport.http.netty.contentaware.RequestResponseTransformTestCase" />
             <class name="org.wso2.transport.http.netty.contentaware.RequestResponseTransformStreamingTestCase" />
 
-            <class name="org.wso2.transport.http.netty.proxyserver.HttpsProxyServerTestCase" />
-            <class name="org.wso2.transport.http.netty.proxyserver.HttpProxyServerTestCase" />
+            <class name="org.wso2.transport.http.netty.proxyserver.HttpsProxyTestCase" />
+            <class name="org.wso2.transport.http.netty.proxyserver.HttpProxyTestCase" />
 
             <class name="org.wso2.transport.http.netty.ClientConnectorTimeoutTestCase" />
             <class name="org.wso2.transport.http.netty.ClientConnectorConnectionRefusedTestCase" />
@@ -55,6 +55,8 @@
             <class name="org.wso2.transport.http.netty.unitfunction.CommonUtilTestCase" />
             <class name="org.wso2.transport.http.netty.unitfunction.HttpCarbonMessageTestCase" />
             <class name="org.wso2.transport.http.netty.unitfunction.ForwardedTestCase" />
+            <class name="org.wso2.transport.http.netty.proxyserver.TestProxy" />
+            <class name="org.wso2.transport.http.netty.proxyserver.HttpsProxyServerTestCase" />
 
             <class name="org.wso2.transport.http.netty.encoding.ContentEncodingTestCase"/>
             <class name="org.wso2.transport.http.netty.urilengthvalidation.Status414And413ResponseTest"/>

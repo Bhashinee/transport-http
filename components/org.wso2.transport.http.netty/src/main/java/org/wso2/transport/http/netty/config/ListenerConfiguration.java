@@ -119,7 +119,6 @@ public class ListenerConfiguration {
     @XmlAttribute
     private boolean ocspStaplingEnabled = false;
 
-    private boolean proxy = true;
     private String proxyUserName;
     private String proxyPassword;
     private String proxyPseudonym;
@@ -370,7 +369,7 @@ public class ListenerConfiguration {
         return ocspStaplingEnabled;
     }
 
-    public String getProxyUserName() {
+    public String getProxyServerUserName() {
         return proxyUserName;
     }
 
@@ -382,7 +381,7 @@ public class ListenerConfiguration {
         return proxyPseudonym;
     }
 
-    public void setProxyUserName(String proxyUserName) {
+    public void setProxyServerUserName(String proxyUserName) {
         this.proxyUserName = proxyUserName;
     }
 

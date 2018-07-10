@@ -94,7 +94,8 @@ public class DefaultHttpWsConnectorFactory implements HttpWsConnectorFactory {
         ProxyServerConnectorBootstrap proxyServerBootstrap = new ProxyServerConnectorBootstrap(allChannels);
         proxyServerBootstrap.addThreadPools(bossGroup, workerGroup);
         proxyServerBootstrap.addHeaderAndEntitySizeValidation(listenerConfiguration.getRequestSizeValidationConfig());
-        return proxyServerBootstrap.getServerConnector(listenerConfiguration.getHost(), listenerConfiguration.getPort());
+        return proxyServerBootstrap
+                .getServerConnector(listenerConfiguration.getHost(), listenerConfiguration.getPort());
     }
 
     @Override

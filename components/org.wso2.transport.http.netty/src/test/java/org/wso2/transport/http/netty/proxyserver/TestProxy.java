@@ -23,7 +23,8 @@ import io.netty.handler.codec.http.DefaultHttpRequest;
 import io.netty.handler.codec.http.DefaultLastHttpContent;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpVersion;
-import org.mockserver.integration.ClientAndProxy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -55,10 +56,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import static org.mockserver.integration.ClientAndProxy.startClientAndProxy;
 import static org.testng.Assert.assertEquals;
 import static org.testng.AssertJUnit.assertNotNull;
-import static org.wso2.transport.http.netty.common.Constants.HTTPS_SCHEME;
 import static org.wso2.transport.http.netty.common.Constants.HTTP_HOST;
 import static org.wso2.transport.http.netty.common.Constants.HTTP_METHOD;
 import static org.wso2.transport.http.netty.common.Constants.HTTP_PORT;
@@ -67,15 +66,15 @@ import static org.wso2.transport.http.netty.common.Constants.HTTP_SCHEME;
 import static org.wso2.transport.http.netty.common.Constants.PROTOCOL;
 
 /**
- * A test for connecting to a proxy server over HTTPS.
+ * A test for connecting to a proxy server over HTTP.
  */
-public class test {
+public class TestProxy {
 
-    static HttpWsConnectorFactory httpConnectorFactory;
-    private static HTTPCarbonMessage msg;
-    static ProxyServerConnector proxyServerConnector;
+    private static HttpWsConnectorFactory httpConnectorFactory;
+    private static ProxyServerConnector proxyServerConnector;
     private static ServerConnector serverConnector;
     private static HttpClientConnector httpClientConnector;
+    private static final Logger log = LoggerFactory.getLogger(TestProxy.class);
 
     @BeforeClass
     public void setup() throws InterruptedException {
@@ -83,6 +82,7 @@ public class test {
         ListenerConfiguration listenerConfiguration = getListenerConfiguration();
         proxyServerConnector = httpConnectorFactory.createProxyServerConnector(listenerConfiguration);
         ProxyServerConnectorFuture future = proxyServerConnector.start();
+        future.setProxyConnectorListener(new TestProxyConnectorListener());
 
         serverConnector = httpConnectorFactory
                 .createServerConnector(TestUtil.getDefaultServerBootstrapConfig(), getServerListenerConfiguration());
@@ -116,7 +116,8 @@ public class test {
         return senderConfiguration;
     }
 
-    @Test(description = "Tests the scenario of a client connecting to a https server through proxy.") public void testHttpsProxyServer() {
+    @Test(description = "Tests the scenario of a client connecting to a https server through proxy.")
+    public void testHttpsProxyServer() {
         String testValue = "Test";
         ByteBuffer byteBuffer = ByteBuffer.wrap(testValue.getBytes(Charset.forName("UTF-8")));
         HTTPCarbonMessage msg = new HttpCarbonRequest(
@@ -147,9 +148,15 @@ public class test {
         }
     }
 
-    @AfterClass public void cleanUp() {
+    @AfterClass
+    public void cleanUp() {
         httpClientConnector.close();
         serverConnector.stop();
         proxyServerConnector.stop();
+        try {
+            httpConnectorFactory.shutdown();
+        } catch (InterruptedException e) {
+            log.warn("Unable to shut down the httpConnectorFactory in proxy test case");
+        }
     }
 }

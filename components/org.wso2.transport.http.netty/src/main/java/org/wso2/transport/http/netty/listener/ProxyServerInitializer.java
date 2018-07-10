@@ -20,11 +20,11 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.HttpRequestDecoder;
+import io.netty.handler.codec.http.HttpResponseEncoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wso2.transport.http.netty.common.Constants;
 import org.wso2.transport.http.netty.config.RequestSizeValidationConfig;
-import org.wso2.transport.http.netty.contract.ServerConnectorFuture;
 
 /**
  * Channel initializer for proxy server.
@@ -43,10 +43,11 @@ public class ProxyServerInitializer extends ChannelInitializer<SocketChannel> {
     @Override
     protected void initChannel(SocketChannel ch) throws Exception {
         if (log.isDebugEnabled()) {
-            log.debug("Initializing source channel pipeline");
+            log.debug("Initializing proxy channel pipeline");
         }
 
         ChannelPipeline proxyPipeline = ch.pipeline();
+        proxyPipeline.addLast(Constants.HTTP_ENCODER, new HttpResponseEncoder());
         proxyPipeline.addLast(Constants.HTTP_DECODER, new HttpRequestDecoder(reqSizeValidationConfig.getMaxUriLength(),
                 reqSizeValidationConfig.getMaxHeaderSize(), reqSizeValidationConfig.getMaxChunkSize()));
         if (proxyUserName != null && !proxyUserName.isEmpty()) {
@@ -58,7 +59,7 @@ public class ProxyServerInitializer extends ChannelInitializer<SocketChannel> {
     }
 
     void setProxyServerUserName(String userName) {
-        this.proxyUserName = proxyUserName;
+        this.proxyUserName = userName;
     }
 
     void setProxyServerPassword(String proxyPassword) {

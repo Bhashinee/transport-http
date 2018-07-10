@@ -22,73 +22,65 @@ import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.http.DefaultHttpRequest;
 import io.netty.handler.codec.http.DefaultLastHttpContent;
 import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpVersion;
 import org.mockserver.integration.ClientAndProxy;
-import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
-import org.wso2.transport.http.netty.common.Util;
 import org.wso2.transport.http.netty.config.ListenerConfiguration;
 import org.wso2.transport.http.netty.message.HTTPCarbonMessage;
+import org.wso2.transport.http.netty.message.HttpCarbonRequest;
 import org.wso2.transport.http.netty.util.TestUtil;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 
 import static org.mockserver.integration.ClientAndProxy.startClientAndProxy;
+import static org.wso2.transport.http.netty.common.Constants.HTTPS_SCHEME;
 import static org.wso2.transport.http.netty.common.Constants.HTTP_HOST;
 import static org.wso2.transport.http.netty.common.Constants.HTTP_METHOD;
 import static org.wso2.transport.http.netty.common.Constants.HTTP_PORT;
 import static org.wso2.transport.http.netty.common.Constants.HTTP_POST_METHOD;
-import static org.wso2.transport.http.netty.common.Constants.HTTP_SCHEME;
-import static org.wso2.transport.http.netty.common.Constants.IS_PROXY_ENABLED;
 import static org.wso2.transport.http.netty.common.Constants.PROTOCOL;
 
 /**
- * A test for connecting to a proxy server over HTTP.
+ * A test for connecting to a proxy server over HTTPS.
  */
-public class HttpProxyServerTestCase {
+public class HttpsProxyTestCase {
+
     private ClientAndProxy proxy;
-    private HTTPCarbonMessage msg;
-    private String testValue = "Test";
 
     @BeforeClass
     public void setup() throws InterruptedException {
+        //Start proxy server.
         proxy = startClientAndProxy(TestUtil.SERVER_PORT2);
-
-        ByteBuffer byteBuffer = ByteBuffer.wrap(testValue.getBytes(Charset.forName("UTF-8")));
-        msg = new HTTPCarbonMessage(new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.POST, ""));
-        msg.setProperty(HTTP_PORT, TestUtil.SERVER_PORT1);
-        msg.setProperty(PROTOCOL, HTTP_SCHEME);
-        msg.setProperty(HTTP_HOST, TestUtil.TEST_HOST);
-        msg.setProperty(HTTP_METHOD, HTTP_POST_METHOD);
-        msg.setHeader("Host", "localhost:9001");
-        msg.addHttpContent(new DefaultLastHttpContent(Unpooled.wrappedBuffer(byteBuffer)));
-
-        ProxyServerUtil.setUpClientAndServerConnectors(getListenerConfiguration(), HTTP_SCHEME);
+        ProxyServerUtil.setUpClientAndServerConnectors(getListenerConfiguration(), HTTPS_SCHEME);
     }
 
     private ListenerConfiguration getListenerConfiguration() {
         ListenerConfiguration listenerConfiguration = ListenerConfiguration.getDefault();
         listenerConfiguration.setPort(TestUtil.SERVER_PORT1);
+        listenerConfiguration.setScheme(HTTPS_SCHEME);
+        listenerConfiguration.setKeyStoreFile(TestUtil.getAbsolutePath(TestUtil.KEY_STORE_FILE_PATH));
+        String password = "wso2carbon";
+        listenerConfiguration.setKeyStorePass(password);
         return listenerConfiguration;
     }
 
-    @Test (description = "An integration test for connecting to a proxy over http. "
-            + "This will not go through netty proxy handler.")
-    public void testHttpProxyServer() {
-        ProxyServerUtil.sendRequest(msg, testValue);
-    }
-
-    @Test (description = "Tests the request going to the proxy. This should contain the entire URL as the path as it is"
-            + " not a CONNECT request.")
-    public void testHttpProxyRequestUrl() {
-        msg.setProperty(IS_PROXY_ENABLED, true);
-        HttpRequest request = Util.createHttpRequest(msg);
-        String expectedUri = "http://localhost:9001";
-        Assert.assertEquals(request.uri(), expectedUri);
+    @Test (description = "Tests the scenario of a client connecting to a https server through proxy.")
+    public void testHttpsProxyServer() {
+            String testValue = "Test";
+            ByteBuffer byteBuffer = ByteBuffer.wrap(testValue.getBytes(Charset.forName("UTF-8")));
+            HTTPCarbonMessage msg = new HttpCarbonRequest(
+                    new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.POST, ""));
+            msg.setProperty(HTTP_METHOD, HttpMethod.POST.toString());
+            msg.setProperty(HTTP_PORT, TestUtil.SERVER_PORT1);
+            msg.setProperty(PROTOCOL, HTTPS_SCHEME);
+            msg.setProperty(HTTP_HOST, TestUtil.TEST_HOST);
+            msg.setProperty(HTTP_METHOD, HTTP_POST_METHOD);
+            msg.setHeader("Host", "localhost:9001");
+            msg.addHttpContent(new DefaultLastHttpContent(Unpooled.wrappedBuffer(byteBuffer)));
+            ProxyServerUtil.sendRequest(msg, testValue);
     }
 
     @AfterClass

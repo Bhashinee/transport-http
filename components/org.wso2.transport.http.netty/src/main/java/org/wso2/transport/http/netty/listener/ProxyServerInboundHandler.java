@@ -19,44 +19,24 @@
 
 package org.wso2.transport.http.netty.listener;
 
-import io.netty.bootstrap.Bootstrap;
-import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.embedded.EmbeddedChannel;
-import io.netty.channel.oio.OioEventLoopGroup;
-import io.netty.channel.socket.oio.OioSocketChannel;
-import io.netty.handler.codec.http.DefaultFullHttpResponse;
-import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpContent;
-import io.netty.handler.codec.http.HttpHeaderNames;
-import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpRequest;
-import io.netty.handler.codec.http.HttpRequestEncoder;
-import io.netty.handler.codec.http.HttpResponseStatus;
-import io.netty.handler.codec.http.HttpVersion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wso2.transport.http.netty.common.Constants;
 import org.wso2.transport.http.netty.contract.ServerConnectorException;
-import org.wso2.transport.http.netty.contract.ServerConnectorFuture;
+import org.wso2.transport.http.netty.contract.proxyserver.ProxyServerForwardRequestsImpl;
 import org.wso2.transport.http.netty.message.DefaultListener;
 import org.wso2.transport.http.netty.message.HTTPCarbonMessage;
 import org.wso2.transport.http.netty.message.HttpCarbonRequest;
 
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
-import java.net.URL;
 import java.net.UnknownHostException;
-
-import static org.wso2.transport.http.netty.common.Constants.DEFAULT_CHANNEL_PIPELINE;
-import static org.wso2.transport.http.netty.common.Constants.PROXY_SERVER_INBOUND_HANDLER;
 
 /**
  * Handles the requests coming from the client. If it is a CONNECT request ssl tunnel is created.
@@ -67,6 +47,7 @@ public class ProxyServerInboundHandler extends ChannelInboundHandlerAdapter {
     private String proxyPseudonym;
     private HTTPCarbonMessage inboundRequestMsg;
     private final ProxyServerConnectorFuture serverConnectorFuture;
+    private ProxyServerForwardRequestsImpl proxyServerForwardRequests;
     private static final Logger log = LoggerFactory.getLogger(ProxyServerInboundHandler.class);
 
     ProxyServerInboundHandler(String proxyPseudonym, ProxyServerConnectorFuture serverConnectorFuture) {
@@ -81,24 +62,26 @@ public class ProxyServerInboundHandler extends ChannelInboundHandlerAdapter {
             handleHttpRequest(ctx, msg, inboundChannel);
         } else {
             if (msg instanceof HttpContent) {
-                outboundChannel.writeAndFlush(((HttpContent) msg).content())
-                        .addListener((ChannelFutureListener) future -> {
-                            if (future.isSuccess()) {
-                                log.debug("Wrote the content to the backend via proxy.");
-                            }
-                            if (!future.isSuccess()) {
-                                log.error("Could not write the content to the backend via proxy.");
-                                future.channel().close();
-                            }
-                        });
+                inboundRequestMsg.addHttpContent((HttpContent) msg);
+//                outboundChannel.writeAndFlush(((HttpContent) msg).content())
+//                        .addListener((ChannelFutureListener) future -> {
+//                            if (future.isSuccess()) {
+//                                log.debug("Wrote the content to the backend via proxy.");
+//                            }
+//                            if (!future.isSuccess()) {
+//                                log.error("Could not write the content to the backend via proxy.");
+//                                future.channel().close();
+//                            }
+//                        });
             } else {
-                if (outboundChannel.isActive()) {
+                if (proxyServerForwardRequests.getOutboundChannel().isActive()) {
                     // This means, a CONNECT request has come prior to this.
-                    outboundChannel.writeAndFlush(msg).addListener((ChannelFutureListener) future -> {
-                        if (!future.isSuccess()) {
-                            future.channel().close();
-                        }
-                    });
+                    proxyServerForwardRequests.getOutboundChannel().writeAndFlush(msg)
+                            .addListener((ChannelFutureListener) future -> {
+                                if (!future.isSuccess()) {
+                                    future.channel().close();
+                                }
+                            });
                 }
             }
         }
@@ -115,58 +98,63 @@ public class ProxyServerInboundHandler extends ChannelInboundHandlerAdapter {
      * @throws UnknownHostException If an error occurs while retrieving headers from the inbound request
      */
     private void handleHttpRequest(ChannelHandlerContext ctx, Object msg, Channel inboundChannel)
-            throws MalformedURLException, InterruptedException, UnknownHostException, ServerConnectorException {
+            throws ServerConnectorException, MalformedURLException, UnknownHostException, InterruptedException {
         log.debug("Processing http request via ProxyServerInboundHandler.");
         HttpRequest inboundRequest = (HttpRequest) msg;
         inboundRequestMsg = new HttpCarbonRequest(inboundRequest, new DefaultListener(ctx));
         setPropertiesToInboundRequest(ctx, inboundRequest);
-        if(serverConnectorFuture != null) {
-            serverConnectorFuture.notifyHttpListener(inboundRequestMsg);
-        }
-        InetSocketAddress reqSocket = resolveInetSocketAddress(inboundRequest);
-        String host = reqSocket.getHostName();
-        int port = reqSocket.getPort();
 
-        OioEventLoopGroup group = new OioEventLoopGroup(1);
-        Bootstrap clientBootstrap = new Bootstrap();
-        clientBootstrap.group(group).channel(OioSocketChannel.class)
-                .option(ChannelOption.SO_KEEPALIVE, true)
-                .remoteAddress(new InetSocketAddress(host, port))
-                .handler(new ProxyServerOutboundHandler(inboundChannel));
-        ChannelFuture channelFuture = clientBootstrap.connect(host, port).sync();
-        outboundChannel = channelFuture.channel();
-
-        if (inboundRequest.method().equals(HttpMethod.CONNECT)) {
-            // Once the connection is successful, send 200 OK to client.
-            if (outboundChannel.isActive()) {
-                sendOk(inboundChannel, inboundRequest.protocolVersion());
-                removeOtherHandlers(ctx);
-                ctx.channel().pipeline().fireChannelActive();
-            }
-        } else {
-            // This else block is for handling non https requests. Once the connection is successful
-            // forward the incoming messages to backend.
-            inboundRequest.setUri(new URL(inboundRequest.uri()).getPath());
-            inboundRequest.headers().set(HttpHeaderNames.VIA, getViaHeader(inboundRequest));
-            inboundRequest.headers().remove(HttpHeaderNames.PROXY_AUTHORIZATION);
-            ByteBuf encodedRequest = getByteBuf(msg);
-            outboundChannel.writeAndFlush(encodedRequest).addListener((ChannelFutureListener) chFuture -> {
-                if (!chFuture.isSuccess()) {
-                    log.error("Failed to write to the backend via proxy.");
-                    chFuture.channel().close();
-                }
-                if (chFuture.isSuccess()) {
-                    removeOtherHandlers(ctx);
-                    ctx.channel().pipeline().fireChannelActive();
-                    log.debug("Successfully wrote http headers to the backend via proxy");
-                }
-            });
+        proxyServerForwardRequests = new ProxyServerForwardRequestsImpl(ctx, msg,
+                inboundChannel, inboundRequest, inboundRequestMsg, outboundChannel, proxyPseudonym);
+        if (serverConnectorFuture != null) {
+            serverConnectorFuture.notifyHttpListener(proxyServerForwardRequests);
         }
+
+//        InetSocketAddress reqSocket = resolveInetSocketAddress(inboundRequest);
+//        String host = reqSocket.getHostName();
+//        int port = reqSocket.getPort();
+//
+//        OioEventLoopGroup group = new OioEventLoopGroup(1);
+//        Bootstrap clientBootstrap = new Bootstrap();
+//        clientBootstrap.group(group).channel(OioSocketChannel.class)
+//                .option(ChannelOption.SO_KEEPALIVE, true)
+//                .remoteAddress(new InetSocketAddress(host, port))
+//                .handler(new ProxyServerOutboundHandler(inboundChannel));
+//        ChannelFuture channelFuture = clientBootstrap.connect(host, port).sync();
+//        outboundChannel = channelFuture.channel();
+//
+//        if (inboundRequest.method().equals(HttpMethod.CONNECT)) {
+//            // Once the connection is successful, send 200 OK to client.
+//            if (outboundChannel.isActive()) {
+//                sendOk(inboundChannel, inboundRequest.protocolVersion());
+//                removeOtherHandlers(ctx);
+//                ctx.channel().pipeline().fireChannelActive();
+//            }
+//        } else {
+//            // This else block is for handling non https requests. Once the connection is successful
+//            // forward the incoming messages to backend.
+//            inboundRequest.setUri(new URL(inboundRequest.uri()).getPath());
+//            inboundRequest.headers().set(HttpHeaderNames.VIA, getViaHeader(inboundRequest));
+//            inboundRequest.headers().remove(HttpHeaderNames.PROXY_AUTHORIZATION);
+//            ByteBuf encodedRequest = getByteBuf(msg);
+//            outboundChannel.writeAndFlush(encodedRequest).addListener((ChannelFutureListener) chFuture -> {
+//                if (!chFuture.isSuccess()) {
+//                    log.error("Failed to write to the backend via proxy.");
+//                    chFuture.channel().close();
+//                }
+//                if (chFuture.isSuccess()) {
+//                    removeOtherHandlers(ctx);
+//                    ctx.channel().pipeline().fireChannelActive();
+//                    log.debug("Successfully wrote http headers to the backend via proxy");
+//                }
+//            });
+//        }
     }
 
     private void setPropertiesToInboundRequest(ChannelHandlerContext ctx, HttpRequest inboundRequest) {
         inboundRequestMsg.setProperty(Constants.HTTP_VERSION,
-                inboundRequest.protocolVersion().majorVersion() + "." + inboundRequest.protocolVersion().minorVersion());
+                inboundRequest.protocolVersion().majorVersion() + "." + inboundRequest.protocolVersion()
+                        .minorVersion());
         inboundRequestMsg.setProperty(Constants.HTTP_METHOD, inboundRequest.method().name());
         inboundRequestMsg.setProperty(Constants.LOCAL_ADDRESS, ctx.channel().localAddress());
         inboundRequestMsg.setProperty(Constants.REMOTE_ADDRESS, ctx.channel().remoteAddress());
@@ -174,75 +162,75 @@ public class ProxyServerInboundHandler extends ChannelInboundHandlerAdapter {
         inboundRequestMsg.setProperty(Constants.TO, inboundRequest.uri());
     }
 
-    /**
-     * This function is for generating Via header.
-     *
-     * @param inboundRequest http inbound request
-     * @return via header
-     * @throws UnknownHostException If an error occurs while getting the host name
-     */
-    private String getViaHeader(HttpRequest inboundRequest) throws UnknownHostException {
-        String viaHeader;
-        String receivedBy;
-        viaHeader = inboundRequest.headers().get(HttpHeaderNames.VIA);
-        if (proxyPseudonym != null) {
-            receivedBy = proxyPseudonym;
-        } else {
-            receivedBy = InetAddress.getLocalHost().getHostName();
-        }
-        String httpVersion =
-                inboundRequest.protocolVersion().majorVersion() + "." + inboundRequest.protocolVersion()
-                        .minorVersion();
-        if (viaHeader == null) {
-            viaHeader = httpVersion + " " + receivedBy;
-        } else {
-            viaHeader = viaHeader.concat(",").concat(httpVersion + " " + receivedBy);
-        }
-        return viaHeader;
-    }
+//    /**
+//     * This function is for generating Via header.
+//     *
+//     * @param inboundRequest http inbound request
+//     * @return via header
+//     * @throws UnknownHostException If an error occurs while getting the host name
+//     */
+//    private String getViaHeader(HttpRequest inboundRequest) throws UnknownHostException {
+//        String viaHeader;
+//        String receivedBy;
+//        viaHeader = inboundRequest.headers().get(HttpHeaderNames.VIA);
+//        if (proxyPseudonym != null) {
+//            receivedBy = proxyPseudonym;
+//        } else {
+//            receivedBy = InetAddress.getLocalHost().getHostName();
+//        }
+//        String httpVersion =
+//                inboundRequest.protocolVersion().majorVersion() + "." + inboundRequest.protocolVersion()
+//                        .minorVersion();
+//        if (viaHeader == null) {
+//            viaHeader = httpVersion + " " + receivedBy;
+//        } else {
+//            viaHeader = viaHeader.concat(",").concat(httpVersion + " " + receivedBy);
+//        }
+//        return viaHeader;
+//    }
+//
+//    private InetSocketAddress resolveInetSocketAddress(HttpRequest inboundRequest) throws MalformedURLException {
+//        InetSocketAddress address;
+//        if (HttpMethod.CONNECT.equals(inboundRequest.method())) {
+//            String parts[] = inboundRequest.uri().split(Constants.COLON);
+//            address = new InetSocketAddress(parts[0], Integer.parseInt(parts[1]));
+//        } else {
+//            URL url = new URL(inboundRequest.uri());
+//            address = new InetSocketAddress(url.getHost(), url.getPort());
+//        }
+//        return address;
+//    }
 
-    private InetSocketAddress resolveInetSocketAddress(HttpRequest inboundRequest) throws MalformedURLException {
-        InetSocketAddress address;
-        if (HttpMethod.CONNECT.equals(inboundRequest.method())) {
-            String parts[] = inboundRequest.uri().split(Constants.COLON);
-            address = new InetSocketAddress(parts[0], Integer.parseInt(parts[1]));
-        } else {
-            URL url = new URL(inboundRequest.uri());
-            address = new InetSocketAddress(url.getHost(), url.getPort());
-        }
-        return address;
-    }
-
-    private ByteBuf getByteBuf(Object msg) {
-        EmbeddedChannel channel = new EmbeddedChannel(new HttpRequestEncoder());
-        channel.writeOutbound(msg);
-        return channel.readOutbound();
-    }
-
-    /**
-     * Removing other handlers except proxyServerInbound handler and default channel pipeline handler.
-     *
-     * @param ctx channel context
-     */
-    private void removeOtherHandlers(ChannelHandlerContext ctx) {
-        for (String handler : ctx.channel().pipeline().names()) {
-            if (!(PROXY_SERVER_INBOUND_HANDLER.equals(handler) || handler.contains(DEFAULT_CHANNEL_PIPELINE))) {
-                ctx.channel().pipeline().remove(handler);
-            }
-        }
-    }
-
-    /**
-     * Send 200 OK message to the client once the tcp connection is successfully established
-     * between proxy server and backend server.
-     *
-     * @param channel channel
-     * @param httpVersion http version
-     */
-    private static void sendOk(Channel channel, HttpVersion httpVersion) {
-        FullHttpResponse response = new DefaultFullHttpResponse(httpVersion, HttpResponseStatus.OK);
-        channel.writeAndFlush(response);
-    }
+//    private ByteBuf getByteBuf(Object msg) {
+//        EmbeddedChannel channel = new EmbeddedChannel(new HttpRequestEncoder());
+//        channel.writeOutbound(msg);
+//        return channel.readOutbound();
+//    }
+//
+//    /**
+//     * Removing other handlers except proxyServerInbound handler and default channel pipeline handler.
+//     *
+//     * @param ctx channel context
+//     */
+//    private void removeOtherHandlers(ChannelHandlerContext ctx) {
+//        for (String handler : ctx.channel().pipeline().names()) {
+//            if (!(PROXY_SERVER_INBOUND_HANDLER.equals(handler) || handler.contains(DEFAULT_CHANNEL_PIPELINE))) {
+//                ctx.channel().pipeline().remove(handler);
+//            }
+//        }
+//    }
+//
+//    /**
+//     * Send 200 OK message to the client once the tcp connection is successfully established
+//     * between proxy server and backend server.
+//     *
+//     * @param channel channel
+//     * @param httpVersion http version
+//     */
+//    private static void sendOk(Channel channel, HttpVersion httpVersion) {
+//        FullHttpResponse response = new DefaultFullHttpResponse(httpVersion, HttpResponseStatus.OK);
+//        channel.writeAndFlush(response);
+//    }
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {

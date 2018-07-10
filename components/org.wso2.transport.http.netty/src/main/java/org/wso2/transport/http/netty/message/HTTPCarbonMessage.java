@@ -35,6 +35,8 @@ import org.wso2.transport.http.netty.contract.ServerConnectorException;
 import org.wso2.transport.http.netty.contract.ServerConnectorFuture;
 import org.wso2.transport.http.netty.contractimpl.DefaultHttpResponseFuture;
 import org.wso2.transport.http.netty.contractimpl.HttpWsServerConnectorFuture;
+import org.wso2.transport.http.netty.contractimpl.ProxyServerConnectorFutureImpl;
+import org.wso2.transport.http.netty.listener.ProxyServerConnectorFuture;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -53,6 +55,7 @@ public class HTTPCarbonMessage {
 
     private MessageFuture messageFuture;
     private final ServerConnectorFuture httpOutboundRespFuture = new HttpWsServerConnectorFuture();
+    private final ProxyServerConnectorFuture httpProxyOutboundRespFuture = new ProxyServerConnectorFutureImpl();
     private final DefaultHttpResponseFuture httpOutboundRespStatusFuture = new DefaultHttpResponseFuture();
     private final Observable contentObservable = new DefaultObservable();
     private IOException ioException;
@@ -257,6 +260,15 @@ public class HTTPCarbonMessage {
      */
     public ServerConnectorFuture getHttpResponseFuture() {
         return this.httpOutboundRespFuture;
+    }
+
+    /**
+     * Returns the future responsible for sending back the response.
+     *
+     * @return httpOutboundRespFuture.
+     */
+    public ProxyServerConnectorFuture getHttpProxyResponseFuture() {
+        return this.httpProxyOutboundRespFuture;
     }
 
     /**

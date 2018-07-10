@@ -60,12 +60,19 @@ public class SourceErrorHandler {
     private static Logger log = LoggerFactory.getLogger(SourceErrorHandler.class);
 
     private HTTPCarbonMessage inboundRequestMsg;
-    private final ServerConnectorFuture serverConnectorFuture;
+    private ServerConnectorFuture serverConnectorFuture =  null;
+    private final ProxyServerConnectorFuture proxyServerConnectorFuture;
     private SourceInteractiveState state;
     private String serverName;
 
     public SourceErrorHandler(ServerConnectorFuture serverConnectorFuture, String serverName) {
         this.serverConnectorFuture = serverConnectorFuture;
+        this.serverName = serverName;
+        proxyServerConnectorFuture = null;
+    }
+
+    public SourceErrorHandler(ProxyServerConnectorFuture serverConnectorFuture, String serverName) {
+        this.proxyServerConnectorFuture = serverConnectorFuture;
         this.serverName = serverName;
     }
 
