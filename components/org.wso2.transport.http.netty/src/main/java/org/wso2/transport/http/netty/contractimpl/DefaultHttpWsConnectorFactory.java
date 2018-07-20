@@ -26,6 +26,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.util.concurrent.GlobalEventExecutor;
 import org.wso2.transport.http.netty.common.Constants;
 import org.wso2.transport.http.netty.config.ListenerConfiguration;
+import org.wso2.transport.http.netty.config.ProxyListenerConfiguration;
 import org.wso2.transport.http.netty.config.SenderConfiguration;
 import org.wso2.transport.http.netty.contract.HttpClientConnector;
 import org.wso2.transport.http.netty.contract.HttpWsConnectorFactory;
@@ -90,8 +91,10 @@ public class DefaultHttpWsConnectorFactory implements HttpWsConnectorFactory {
     }
 
     @Override
-    public ProxyServerConnector createProxyServerConnector(ListenerConfiguration listenerConfiguration) {
+    public ProxyServerConnector createProxyServerConnector(ProxyListenerConfiguration listenerConfiguration,
+            ServerBootstrapConfiguration serverBootstrapConfiguration) {
         ProxyServerConnectorBootstrap proxyServerBootstrap = new ProxyServerConnectorBootstrap(allChannels);
+        proxyServerBootstrap.addSocketConfiguration(serverBootstrapConfiguration);
         proxyServerBootstrap.addThreadPools(bossGroup, workerGroup);
         proxyServerBootstrap.addHeaderAndEntitySizeValidation(listenerConfiguration.getRequestSizeValidationConfig());
         return proxyServerBootstrap

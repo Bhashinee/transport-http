@@ -9,7 +9,6 @@ import org.wso2.transport.http.netty.contract.PortBindingEventListenerForProxySe
 import org.wso2.transport.http.netty.contract.ServerConnectorException;
 import org.wso2.transport.http.netty.contract.proxyserver.ProxyServerForwardRequests;
 import org.wso2.transport.http.netty.listener.ProxyServerConnectorFuture;
-import org.wso2.transport.http.netty.message.HTTPCarbonMessage;
 
 /**
  * A class for notifying ballerina....
@@ -39,7 +38,8 @@ public class ProxyServerConnectorFutureImpl implements ProxyServerConnectorFutur
     }
 
     @Override
-    public void notifyHttpListener(ProxyServerForwardRequests proxyServerForwardRequests) throws ServerConnectorException {
+    public void notifyHttpListener(ProxyServerForwardRequests proxyServerForwardRequests)
+            throws ServerConnectorException {
         if (proxyConnectorListener == null) {
             throw new ServerConnectorException("HTTP connector listener is not set");
         }

@@ -21,6 +21,7 @@ package org.wso2.transport.http.netty.listener;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -55,7 +56,7 @@ public class ProxyServerConnectorBootstrap {
 
     private ChannelFuture bindInterface(HTTPServerConnector serverConnector) {
         if (!initialized) {
-            log.error("ServerConnectorBootstrap is not initialized");
+            log.error("ProxyServerConnectorBootstrap is not initialized");
             return null;
         }
         return serverBootstrap.bind(new InetSocketAddress(serverConnector.getHost(), serverConnector.getPort()));
@@ -63,7 +64,7 @@ public class ProxyServerConnectorBootstrap {
 
     private boolean unBindInterface(HTTPServerConnector serverConnector) throws InterruptedException {
         if (!initialized) {
-            log.error("ServerConnectorBootstrap is not initialized");
+            log.error("ProxyServerConnectorBootstrap is not initialized");
             return false;
         }
         //Remove cached channels and close them.
@@ -103,7 +104,7 @@ public class ProxyServerConnectorBootstrap {
             proxyServerConnectorFuture = new ProxyServerConnectorFutureImpl(channelFuture, allChannels);
             channelFuture.addListener(channelFuture -> {
                 if (channelFuture.isSuccess()) {
-                    log.info("HTTP(S) Interface starting on host " + this.getHost() + " and port " + this.getPort());
+                    log.info("Proxy Interface starting on host " + this.getHost() + " and port " + this.getPort());
                     proxyServerConnectorFuture.notifyPortBindingEvent(this.connectorID);
                 } else {
                     proxyServerConnectorFuture.notifyPortBindingError(channelFuture.cause());
@@ -158,5 +159,27 @@ public class ProxyServerConnectorBootstrap {
 
     public void addHeaderAndEntitySizeValidation(RequestSizeValidationConfig requestSizeValidationConfig) {
         proxyServerInitializer.setReqSizeValidationConfig(requestSizeValidationConfig);
+    }
+
+    public void addSocketConfiguration(ServerBootstrapConfiguration serverBootstrapConfiguration) {
+        // Set other serverBootstrap parameters
+        serverBootstrap.option(ChannelOption.SO_BACKLOG, serverBootstrapConfiguration.getSoBackLog());
+        serverBootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, serverBootstrapConfiguration.getConnectTimeOut());
+        serverBootstrap.option(ChannelOption.SO_RCVBUF, serverBootstrapConfiguration.getReceiveBufferSize());
+
+        serverBootstrap.childOption(ChannelOption.TCP_NODELAY, serverBootstrapConfiguration.isTcpNoDelay());
+        serverBootstrap.childOption(ChannelOption.SO_RCVBUF, serverBootstrapConfiguration.getReceiveBufferSize());
+        serverBootstrap.childOption(ChannelOption.SO_SNDBUF, serverBootstrapConfiguration.getSendBufferSize());
+
+        if (log.isDebugEnabled()) {
+            log.debug(String.format("Netty Server Socket BACKLOG %d", serverBootstrapConfiguration.getSoBackLog()));
+            log.debug(String.format("Netty Server Socket TCP_NODELAY %s", serverBootstrapConfiguration.isTcpNoDelay()));
+            log.debug(String.format("Netty Server Socket CONNECT_TIMEOUT_MILLIS %d",
+                    serverBootstrapConfiguration.getConnectTimeOut()));
+            log.debug(String.format("Netty Server Socket SO_RCVBUF %d",
+                    serverBootstrapConfiguration.getReceiveBufferSize()));
+            log.debug(String.format("Netty Server Socket SO_SNDBUF %d",
+                    serverBootstrapConfiguration.getSendBufferSize()));
+        }
     }
 }

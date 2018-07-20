@@ -30,6 +30,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 import org.wso2.transport.http.netty.common.ProxyServerConfiguration;
 import org.wso2.transport.http.netty.config.ListenerConfiguration;
+import org.wso2.transport.http.netty.config.ProxyListenerConfiguration;
 import org.wso2.transport.http.netty.config.SenderConfiguration;
 import org.wso2.transport.http.netty.contentaware.listeners.EchoMessageListener;
 import org.wso2.transport.http.netty.contract.HttpClientConnector;
@@ -40,6 +41,7 @@ import org.wso2.transport.http.netty.contract.ServerConnector;
 import org.wso2.transport.http.netty.contract.ServerConnectorFuture;
 import org.wso2.transport.http.netty.contractimpl.DefaultHttpWsConnectorFactory;
 import org.wso2.transport.http.netty.listener.ProxyServerConnectorFuture;
+import org.wso2.transport.http.netty.listener.ServerBootstrapConfiguration;
 import org.wso2.transport.http.netty.message.HTTPCarbonMessage;
 import org.wso2.transport.http.netty.message.HttpCarbonRequest;
 import org.wso2.transport.http.netty.message.HttpMessageDataStreamer;
@@ -79,8 +81,10 @@ public class HttpsProxyServerTestCase {
     @BeforeClass
     public void setup() throws InterruptedException {
         httpConnectorFactory = new DefaultHttpWsConnectorFactory();
-        ListenerConfiguration listenerConfiguration = getListenerConfiguration();
-        proxyServerConnector = httpConnectorFactory.createProxyServerConnector(listenerConfiguration);
+        ProxyListenerConfiguration listenerConfiguration = getListenerConfiguration();
+        ServerBootstrapConfiguration serverBootstrapConfiguration = TestUtil.getDefaultServerBootstrapConfig();
+        proxyServerConnector = httpConnectorFactory
+                .createProxyServerConnector(listenerConfiguration, serverBootstrapConfiguration);
         ProxyServerConnectorFuture future = proxyServerConnector.start();
         future.setProxyConnectorListener(new TestProxyConnectorListener());
 
@@ -92,7 +96,7 @@ public class HttpsProxyServerTestCase {
     }
 
     private static ListenerConfiguration getServerListenerConfiguration() {
-        ListenerConfiguration listenerConfiguration = ListenerConfiguration.getDefault();
+        ListenerConfiguration listenerConfiguration = new ListenerConfiguration();
         listenerConfiguration.setPort(TestUtil.SERVER_PORT3);
         listenerConfiguration.setKeyStoreFile(TestUtil.getAbsolutePath(TestUtil.KEY_STORE_FILE_PATH));
         listenerConfiguration.setKeyStorePass(TestUtil.KEY_STORE_PASSWORD);
@@ -100,8 +104,8 @@ public class HttpsProxyServerTestCase {
         return listenerConfiguration;
     }
 
-    private static ListenerConfiguration getListenerConfiguration() {
-        ListenerConfiguration listenerConfiguration = ListenerConfiguration.getDefault();
+    private static ProxyListenerConfiguration getListenerConfiguration() {
+        ProxyListenerConfiguration listenerConfiguration = new ProxyListenerConfiguration();
         listenerConfiguration.setPort(9096);
         return listenerConfiguration;
     }

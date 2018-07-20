@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wso2.transport.http.netty.ProxyConnectorListener;
 import org.wso2.transport.http.netty.contract.proxyserver.ProxyServerForwardRequests;
-import org.wso2.transport.http.netty.message.HTTPCarbonMessage;
 
 import java.net.MalformedURLException;
 import java.net.UnknownHostException;
@@ -27,10 +26,5 @@ public class TestProxyConnectorListener implements ProxyConnectorListener {
         } catch (MalformedURLException | InterruptedException | UnknownHostException e) {
             log.error("Unable to forward requests to the backend");
         }
-    }
-
-    @Override
-    public void onMessage(HTTPCarbonMessage httpCarbonMessage) {
-        // do nothing
     }
 }

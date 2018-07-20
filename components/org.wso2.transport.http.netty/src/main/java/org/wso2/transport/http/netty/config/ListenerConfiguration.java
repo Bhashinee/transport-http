@@ -119,9 +119,9 @@ public class ListenerConfiguration {
     @XmlAttribute
     private boolean ocspStaplingEnabled = false;
 
-    private String proxyUserName;
-    private String proxyPassword;
-    private String proxyPseudonym;
+//    private String proxyUserName;
+//    private String proxyPassword;
+//    private String proxyPseudonym;
 
     @XmlElementWrapper(name = "parameters")
     @XmlElement(name = "parameter")
@@ -369,27 +369,27 @@ public class ListenerConfiguration {
         return ocspStaplingEnabled;
     }
 
-    public String getProxyServerUserName() {
-        return proxyUserName;
-    }
-
-    public String getProxyPassword() {
-        return proxyPassword;
-    }
-
-    public String getProxyPseudonym() {
-        return proxyPseudonym;
-    }
-
-    public void setProxyServerUserName(String proxyUserName) {
-        this.proxyUserName = proxyUserName;
-    }
-
-    public void setProxyPassword(String proxyPassword) {
-        this.proxyPassword = proxyPassword;
-    }
-
-    public void setProxyPseudonym(String proxyPseudonym) {
-        this.proxyPseudonym = proxyPseudonym;
-    }
+//    public String getProxyServerUserName() {
+//        return proxyUserName;
+//    }
+//
+//    public String getProxyServerPassword() {
+//        return proxyPassword;
+//    }
+//
+//    public String getProxyPseudonym() {
+//        return proxyPseudonym;
+//    }
+//
+//    public void setProxyServerUserName(String proxyUserName) {
+//        this.proxyUserName = proxyUserName;
+//    }
+//
+//    public void setProxyServerPassword(String proxyPassword) {
+//        this.proxyPassword = proxyPassword;
+//    }
+//
+//    public void setProxyPseudonym(String proxyPseudonym) {
+//        this.proxyPseudonym = proxyPseudonym;
+//    }
 }

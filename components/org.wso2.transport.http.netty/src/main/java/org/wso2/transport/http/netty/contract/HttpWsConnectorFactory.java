@@ -20,6 +20,7 @@
 package org.wso2.transport.http.netty.contract;
 
 import org.wso2.transport.http.netty.config.ListenerConfiguration;
+import org.wso2.transport.http.netty.config.ProxyListenerConfiguration;
 import org.wso2.transport.http.netty.config.SenderConfiguration;
 import org.wso2.transport.http.netty.contract.websocket.WebSocketClientConnector;
 import org.wso2.transport.http.netty.contract.websocket.WebSocketClientConnectorConfig;
@@ -42,12 +43,13 @@ public interface HttpWsConnectorFactory {
             ListenerConfiguration listenerConfiguration);
 
     /**
-     * This method can be used to get new server connectors.
+     * This method can be used to get new proxy server connectors.
      *
-     * @param listenerConfiguration contains SSL and socket bindings.
-     * @return connector that represents the server socket and additional details.
+     * @param listenerConfiguration contains proxy related configs and socket bindings.
+     * @return proxyConnector that represents the proxy server socket and additional details.
      */
-    ProxyServerConnector createProxyServerConnector(ListenerConfiguration listenerConfiguration);
+    ProxyServerConnector createProxyServerConnector(ProxyListenerConfiguration listenerConfiguration,
+            ServerBootstrapConfiguration serverBootstrapConfiguration);
 
     /**
      * This method can be used to get http client connectors.

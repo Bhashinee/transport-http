@@ -23,7 +23,6 @@ import org.wso2.transport.http.netty.ProxyConnectorListener;
 import org.wso2.transport.http.netty.contract.PortBindingEventListenerForProxyServer;
 import org.wso2.transport.http.netty.contract.ServerConnectorException;
 import org.wso2.transport.http.netty.contract.proxyserver.ProxyServerForwardRequests;
-import org.wso2.transport.http.netty.message.HTTPCarbonMessage;
 
 /**
  * Proxy server connector future.

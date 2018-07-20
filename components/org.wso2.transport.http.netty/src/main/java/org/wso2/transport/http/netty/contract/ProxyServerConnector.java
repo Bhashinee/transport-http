@@ -26,9 +26,21 @@ import org.wso2.transport.http.netty.listener.ProxyServerConnectorFuture;
  */
 public interface ProxyServerConnector {
 
+    /**
+     * Start the proxy server connector which actually opens the port.
+     * @return events related to the server connector.
+     */
     ProxyServerConnectorFuture start();
 
+    /**
+     * Stop the proxy server connector which actually closes the port.
+     * @return state of action.
+     */
     boolean stop();
 
+    /**
+     * Returns the unique ID of the proxy server connector.
+     * @return the id.
+     */
     String getConnectorID();
 }

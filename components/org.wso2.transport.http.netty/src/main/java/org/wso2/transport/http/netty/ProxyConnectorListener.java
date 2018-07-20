@@ -1,7 +1,6 @@
 package org.wso2.transport.http.netty;
 
 import org.wso2.transport.http.netty.contract.proxyserver.ProxyServerForwardRequests;
-import org.wso2.transport.http.netty.message.HTTPCarbonMessage;
 
 /**
  * Proxy connector listener interface.
@@ -20,8 +19,4 @@ public interface ProxyConnectorListener {
      * @param proxyServerForwardRequests contains the state change information of the event.
      */
     void onMessage(ProxyServerForwardRequests proxyServerForwardRequests);
-
-    void onMessage(HTTPCarbonMessage httpCarbonMessage);
-
-
 }
