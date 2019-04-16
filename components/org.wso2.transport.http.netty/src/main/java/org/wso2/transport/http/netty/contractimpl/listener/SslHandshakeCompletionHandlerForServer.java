@@ -84,7 +84,9 @@ public class SslHandshakeCompletionHandlerForServer extends ChannelInboundHandle
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        LOG.error("Error while SSL handshake: " + cause.getMessage());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Error while SSL handshake: " + cause.getMessage());
+        }
     }
 }
 
