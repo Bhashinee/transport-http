@@ -281,6 +281,10 @@ public class HttpClientChannelInitializer extends ChannelInitializer<SocketChann
         return keepAliveConfig;
     }
 
+    public SSLConfig getSslConfig() {
+        return sslConfig;
+    }
+
     public void setHttp2ClientChannel(Http2ClientChannel http2ClientChannel) {
         http2TargetHandler.setHttp2ClientChannel(http2ClientChannel);
         clientFrameListener.setHttp2ClientChannel(http2ClientChannel);
